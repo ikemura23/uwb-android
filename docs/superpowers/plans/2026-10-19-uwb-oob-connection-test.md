@@ -13,9 +13,9 @@
 ## Global Constraints
 
 - パッケージ: `com.ikemura23.uwb`（既存）。単一モジュール `:app`
-- `minSdk = 24` のまま（ユーザー決定）。`compileSdk` / `targetSdk` は既存の 37 のまま
-- UWB は API 31+ が必要なため、実験フロー（Task 3 以降の UWB・OOB コード）は `@RequiresApi(Build.VERSION_CODES.S)` を付け、起動画面で `SDK_INT < 31` または `FEATURE_UWB` なしなら「この端末は UWB 非対応です」を出して開始ボタンを無効化する
-- `androidx.core.uwb:uwb:1.1.0-alpha03`（ユーザー決定。AAR の minSdk は 24 で確認済み）
+- `minSdk = 31`（UWB が使える最低 API。ユーザー決定。SDK バージョン判定は極力書かない）。`compileSdk` / `targetSdk` は既存の 37 のまま
+- 起動画面で `FEATURE_UWB` なしなら「この端末は UWB 非対応です」を出して開始ボタンを無効化する（API レベル判定は不要）
+- `androidx.core.uwb:uwb:1.1.0-alpha03`（ユーザー決定）
 - `uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR`、`updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC`
 - STS: Static STS、`sessionKeyInfo` は 8 バイト（親機がランダム生成）。`sessionId` も親機がランダム生成
 - OOB 交換順: 子機が先に `ControleeInfo` を送り、親機が `ControllerInfo` を返す（Wi-Fi Aware の制約）
@@ -38,7 +38,7 @@
 ### Task 1: ビルド設定・モデル・OOB メッセージコーデック
 
 **Files:**
-- Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`（minSdk は変更しない、uwb 1.1.0-alpha03 / coroutines / lifecycle-viewmodel-compose / coroutines-test 追加）
+- Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`（minSdk 24 → 31、uwb 1.1.0-alpha03 / coroutines / lifecycle-viewmodel-compose / coroutines-test 追加）
 - Create: `app/src/main/java/com/ikemura23/uwb/model/Role.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/model/OobType.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/OobMessages.kt`
@@ -272,7 +272,7 @@ class RangingParamsTest {
   - `data class RangingUiState(val role: Role, val oob: OobType, val status: ExperimentStatus = OOB_CONNECTING, val reason: String? = null, val position: RangingPosition? = null, val timings: Timings = Timings(), val logs: List<LogLine> = emptyList())`
   - `fun RangingUiState.reduce(event: ExperimentEvent, timeMs: Long): RangingUiState` — `Status`/`Ranging`/`TimingsUpdated` もログ行を追加（計測値をログに残す仕様のため）。`Ranging` は `RangingResultPosition` のときだけ position 更新
   - `fun formatMeters(m: RangingMeasurement?): String`（`"1.23 m"` / `"—"`）、`fun formatDegrees(m: RangingMeasurement?): String`（`"-12.5°"` / `"—"`）、`fun formatMs(ms: Long?): String`（`"350 ms"` / `"—"`）
-  - `fun requiredRuntimePermissions(oob: OobType, sdkInt: Int): List<String>`（`sdkInt >= 31` 前提）— 常に `UWB_RANGING`。BLE: `BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE`。NEARBY: BLE の3つ＋`ACCESS_FINE_LOCATION`（Nearby の最新ドキュメントで要否確認し、不要なら除く）＋ `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`。WIFI_AWARE: `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`、31〜32 なら `ACCESS_FINE_LOCATION`
+  - `fun requiredRuntimePermissions(oob: OobType, sdkInt: Int): List<String>`— 常に `UWB_RANGING`。BLE: `BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE`。NEARBY: BLE の3つ＋`ACCESS_FINE_LOCATION`（Nearby の最新ドキュメントで要否確認し、不要なら除く）＋ `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`。WIFI_AWARE: `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`、31〜32 なら `ACCESS_FINE_LOCATION`
   - `fun missingPermissions(required: List<String>, granted: Map<String, Boolean>): List<String>`
   - `object OobTransportFactory { fun create(context: Context, type: OobType, onEvent: (OobEvent) -> Unit): OobTransport }`（この時点では全分岐 `TODO()` 相当の `IllegalStateException("未実装")`、Task 6〜8 で埋める）
   - `RangingViewModel(app, role, oob)`: init で runner を `viewModelScope` で collect し `StateFlow<RangingUiState>` を公開。`stop()` で job キャンセル
@@ -332,7 +332,7 @@ class PermissionsTest {
 **Files:**
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/ble/BleOobTransport.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/ble/BleUuids.kt`
-- Modify: `OobTransportFactory.kt`（BLE 分岐）、`AndroidManifest.xml`（`BLUETOOTH_SCAN` は `android:usesPermissionFlags="neverForLocation"`、`BLUETOOTH` / `BLUETOOTH_ADMIN` は `android:maxSdkVersion="30"`、`BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, `<uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>`）
+- Modify: `OobTransportFactory.kt`（BLE 分岐）、`AndroidManifest.xml`（`BLUETOOTH_SCAN` は `android:usesPermissionFlags="neverForLocation"`、`BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, `<uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>`）
 
 **Interfaces:**
 - Consumes: `OobTransport`, `OobEvent`, `OobCodec`

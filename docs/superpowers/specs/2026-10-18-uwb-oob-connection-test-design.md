@@ -149,7 +149,7 @@ interface OobTransport {
 
 ## 権限・設定
 
-- `minSdk` は 24 のまま（ユーザー決定）。UWB は Android 12+ のため、それ未満の端末では起動画面で UWB 非対応と表示する。権限は API レベルで出し分ける（`NEARBY_WIFI_DEVICES` は 13+、12 では `ACCESS_FINE_LOCATION`）
+- `minSdk` を 24 → 31 に上げる（UWB が使える最低 API。ユーザー決定。判定処理を減らすため）。残る API 判定は Android 12 と 13+ の権限差（`NEARBY_WIFI_DEVICES` は 13+、12 では `ACCESS_FINE_LOCATION`）のみ
 - 権限: `UWB_RANGING`, `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, `NEARBY_WIFI_DEVICES`, `ACCESS_FINE_LOCATION`（Nearby Connections 用。API 33+ で要否が変わっているので最新ドキュメントで確認）, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE` 等。必要なものは実装時に確定する。
 - 実行時権限は開始ボタン押下時にまとめてリクエストし、拒否されたら測距画面ではなく起動画面でエラー表示。
 
