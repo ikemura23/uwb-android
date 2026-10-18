@@ -77,7 +77,7 @@ fun StartScreen(onStart: (Role, OobType) -> Unit, modifier: Modifier = Modifier)
 
         Button(
             onClick = { launcher.launch(requiredRuntimePermissions(oob).toTypedArray()) },
-            enabled = role != null,
+            enabled = role != null && uwbSupported,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("開始") }
 

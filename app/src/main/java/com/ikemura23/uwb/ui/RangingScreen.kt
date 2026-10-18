@@ -41,6 +41,7 @@ fun RangingScreen(state: RangingUiState, onStop: () -> Unit, modifier: Modifier 
         Value("距離", formatMeters(p?.distance))
         Value("方位角", formatDegrees(p?.azimuth))
         Value("仰角", formatDegrees(p?.elevation))
+        Value("elapsedRealtimeNanos", p?.elapsedRealtimeNanos?.toString() ?: "—")
 
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
         Value("OOB 接続確立まで", formatMs(state.timings.linkMs))

@@ -4,7 +4,9 @@ import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.ikemura23.uwb.experiment.ExperimentEvent
 import com.ikemura23.uwb.experiment.ExperimentRunner
+import com.ikemura23.uwb.experiment.ExperimentStatus
 import com.ikemura23.uwb.measure.TimingTracker
 import com.ikemura23.uwb.model.OobType
 import com.ikemura23.uwb.model.Role
@@ -14,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -30,9 +33,12 @@ class RangingViewModel(app: Application, role: Role, oob: OobType) : AndroidView
 
     private val job: Job = viewModelScope.launch {
         val t0 = SystemClock.elapsedRealtime()
-        runner.run().collect { event ->
-            _state.update { it.reduce(event, SystemClock.elapsedRealtime() - t0) }
-        }
+        // Safety net: ExperimentRunner converts most errors to FAILED itself; catch() skips cancellation.
+        runner.run()
+            .catch { e -> emit(ExperimentEvent.Status(ExperimentStatus.FAILED, e.message ?: e.toString())) }
+            .collect { event ->
+                _state.update { it.reduce(event, SystemClock.elapsedRealtime() - t0) }
+            }
     }
 
     fun stop() {
