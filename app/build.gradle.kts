@@ -48,6 +48,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.uwb)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.play.services.nearby)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
