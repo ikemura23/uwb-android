@@ -32,12 +32,16 @@ class RangingViewModel(app: Application, role: Role, oob: OobType) : AndroidView
     )
 
     private val job: Job = viewModelScope.launch {
-        val t0 = SystemClock.elapsedRealtime()
+        // Log times share the tracker's t0: it is reset when the runner reports Started (OOB 処理開始).
+        // Events before that (e.g. OOB_CONNECTING) are stamped 0.
+        var t0: Long? = null
         // Safety net: ExperimentRunner converts most errors to FAILED itself; catch() skips cancellation.
         runner.run()
             .catch { e -> emit(ExperimentEvent.Status(ExperimentStatus.FAILED, e.message ?: e.toString())) }
             .collect { event ->
-                _state.update { it.reduce(event, SystemClock.elapsedRealtime() - t0) }
+                if (event == ExperimentEvent.Started) t0 = SystemClock.elapsedRealtime()
+                val timeMs = t0?.let { SystemClock.elapsedRealtime() - it } ?: 0L
+                _state.update { it.reduce(event, timeMs) }
             }
     }
 

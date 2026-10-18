@@ -79,12 +79,14 @@ class ExperimentRunnerTest {
             return controllerInfo
         }
 
+        var closeError: Exception? = null
         override fun close() {
             closed = true
+            closeError?.let { throw it }
         }
     }
 
-    private fun tracker(): TimingTracker {
+    private fun newTracker(): TimingTracker {
         var now = 0L
         return TimingTracker { now += 1_000_000L; now }
     }
@@ -93,12 +95,20 @@ class ExperimentRunnerTest {
         role: Role,
         session: FakeSession,
         holder: MutableList<FakeTransport>,
+        closeError: Exception? = null,
+        tracker: TimingTracker = newTracker(),
+        sessions: UwbSessions = FakeSessions(session),
         behavior: suspend () -> Unit = {},
     ) = ExperimentRunner(
         role = role,
-        sessions = FakeSessions(session),
-        transportFactory = { onEvent -> FakeTransport(onEvent, behavior).also { holder += it } },
-        tracker = tracker(),
+        sessions = sessions,
+        transportFactory = { onEvent ->
+            FakeTransport(onEvent, behavior).also {
+                it.closeError = closeError
+                holder += it
+            }
+        },
+        tracker = tracker,
     )
 
     private fun List<ExperimentEvent>.statuses() = filterIsInstance<ExperimentEvent.Status>()
@@ -190,5 +200,77 @@ class ExperimentRunnerTest {
         val events = runner(Role.CONTROLLER, session, mutableListOf()).run().toList()
 
         assertEquals(ExperimentStatus.PEER_DISCONNECTED, events.statuses().last().status)
+    }
+
+    @Test fun t0IsTakenAfterSessionOpens() = runTest {
+        var now = 0L
+        val tracker = TimingTracker { now }
+        val session = FakeSession(listOf(RangingResult.RangingResultInitialized(device), position()))
+        val sessions = object : UwbSessions {
+            override suspend fun openController(): UwbSession {
+                now += 500_000_000L // session open takes 500 ms
+                return session
+            }
+            override suspend fun openControlee(): UwbSession = session
+        }
+        val events = runner(Role.CONTROLLER, session, mutableListOf(), tracker = tracker, sessions = sessions)
+            .run().toList()
+
+        assertTrue(events.contains(ExperimentEvent.Started))
+        // Link is marked at the same clock value as t0, so it must not include the 500 ms session open.
+        assertEquals(0L, events.filterIsInstance<ExperimentEvent.TimingsUpdated>().first().timings.linkMs)
+    }
+
+    @Test fun closeFailureKeepsSuccessOutcome() = runTest {
+        val session = FakeSession(listOf(RangingResult.RangingResultInitialized(device), position()))
+        val events = runner(
+            Role.CONTROLLER, session, mutableListOf(), closeError = IllegalStateException("boom"),
+        ).run().toList()
+
+        assertEquals(ExperimentStatus.RANGING, events.statuses().last().status)
+        assertTrue(events.contains(ExperimentEvent.Log("OOB close 失敗: boom")))
+        assertTrue(events.statuses().none { it.status == ExperimentStatus.FAILED })
+    }
+
+    @Test fun timeoutDuringRangingIsNotReportedAsOobExchangeTimeout() = runTest {
+        val session = object : UwbSession {
+            override val localAddress = UwbAddress(localAddr)
+            override val complexChannel: UwbComplexChannel? = null
+            override fun prepare(params: RangingParameters): Flow<RangingResult> = kotlinx.coroutines.flow.flow {
+                emit(RangingResult.RangingResultInitialized(device))
+                kotlinx.coroutines.withTimeout(1) { awaitCancellation() }
+            }
+        }
+        val events = runner(Role.CONTROLLER, FakeSession(emptyList()), mutableListOf(), sessions = FakeSessions(session))
+            .run().toList()
+
+        // The timeout message is specific to the OOB exchange; a later timeout surfaces as a generic failure.
+        assertTrue(events.statuses().none { (it.reason ?: "").contains("OOB 交換") })
+    }
+
+    @Test fun positionAfterPeerDisconnectRestoresRangingStatus() = runTest {
+        val session = FakeSession(
+            listOf(
+                RangingResult.RangingResultInitialized(device),
+                RangingResult.RangingResultPeerDisconnected(device, 0),
+                position(),
+            ),
+        )
+        val events = runner(Role.CONTROLLER, session, mutableListOf()).run().toList()
+
+        assertEquals(
+            listOf(
+                ExperimentStatus.OOB_CONNECTING, ExperimentStatus.EXCHANGED, ExperimentStatus.RANGING,
+                ExperimentStatus.PEER_DISCONNECTED, ExperimentStatus.RANGING,
+            ),
+            events.statuses().map { it.status },
+        )
+    }
+
+    @Test fun positionResultIsNotLoggedByRunner() = runTest {
+        val session = FakeSession(listOf(RangingResult.RangingResultInitialized(device), position()))
+        val events = runner(Role.CONTROLLER, session, mutableListOf()).run().toList()
+
+        assertTrue(events.filterIsInstance<ExperimentEvent.Log>().none { it.message.contains("RangingResultPosition") })
     }
 }

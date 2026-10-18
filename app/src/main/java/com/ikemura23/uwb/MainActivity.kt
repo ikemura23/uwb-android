@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
 private fun App(modifier: Modifier = Modifier) {
     var role by rememberSaveable { mutableStateOf<Role?>(null) }
     var oob by rememberSaveable { mutableStateOf(OobType.DEFAULT) }
+    // Last-used role survives 停止 so StartScreen can restore the selection.
+    var lastRole by rememberSaveable { mutableStateOf<Role?>(null) }
     // Bumped on every start so each run gets a fresh ViewModel.
     var runId by rememberSaveable { mutableIntStateOf(0) }
 
@@ -53,10 +55,13 @@ private fun App(modifier: Modifier = Modifier) {
         StartScreen(
             onStart = { r, o ->
                 role = r
+                lastRole = r
                 oob = o
                 runId++
             },
             modifier = modifier,
+            initialRole = lastRole,
+            initialOob = oob,
         )
     } else {
         val app = LocalContext.current.applicationContext as Application

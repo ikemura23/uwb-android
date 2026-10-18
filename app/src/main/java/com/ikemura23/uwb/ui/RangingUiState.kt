@@ -24,6 +24,7 @@ data class RangingUiState(
 )
 
 fun RangingUiState.reduce(event: ExperimentEvent, timeMs: Long): RangingUiState = when (event) {
+    ExperimentEvent.Started -> this
     is ExperimentEvent.Log -> log(timeMs, event.message)
     is ExperimentEvent.Status -> copy(status = event.status, reason = event.reason)
         .log(timeMs, "状態: ${event.status.label}" + (event.reason?.let { " ($it)" } ?: ""))

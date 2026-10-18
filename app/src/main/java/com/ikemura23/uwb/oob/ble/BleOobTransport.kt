@@ -75,11 +75,17 @@ class BleOobTransport(
                 startAdvertising(adapter, result)
             }
 
+            // Only the first connected device is our 子機; callbacks from other devices are ignored.
+            @Volatile private var peerAddress: String? = null
+
             override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    if (peerAddress == null) peerAddress = device.address
+                    else if (peerAddress != device.address) return
                     log("子機が接続: ${device.address}")
                     emitLinkEstablished()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    if (peerAddress != device.address) return
                     // Disconnect after our Read Response = the 子機 got ControllerInfo and closed.
                     val info = if (responseSent.isCompleted) receivedControlee else null
                     if (info != null) {

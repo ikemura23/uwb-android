@@ -15,16 +15,29 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.ikemura23.uwb.experiment.ExperimentStatus
+import kotlinx.coroutines.flow.filter
 
 @Composable
 fun RangingScreen(state: RangingUiState, onStop: () -> Unit, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
+    // Follow the tail only while the user is at the bottom; scrolling up pauses auto-scroll.
+    var followTail by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .filter { !it }
+            .collect { followTail = !listState.canScrollForward }
+    }
     LaunchedEffect(state.logs.size) {
-        if (state.logs.isNotEmpty()) listState.animateScrollToItem(state.logs.lastIndex)
+        if (followTail && state.logs.isNotEmpty()) listState.scrollToItem(state.logs.lastIndex)
     }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

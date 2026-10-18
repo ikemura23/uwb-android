@@ -32,13 +32,18 @@ import com.ikemura23.uwb.permission.missingPermissions
 import com.ikemura23.uwb.permission.requiredRuntimePermissions
 
 @Composable
-fun StartScreen(onStart: (Role, OobType) -> Unit, modifier: Modifier = Modifier) {
+fun StartScreen(
+    onStart: (Role, OobType) -> Unit,
+    modifier: Modifier = Modifier,
+    initialRole: Role? = null,
+    initialOob: OobType = OobType.DEFAULT,
+) {
     val context = LocalContext.current
     val uwbSupported = remember {
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_UWB)
     }
-    var role by rememberSaveable { mutableStateOf<Role?>(null) }
-    var oob by rememberSaveable { mutableStateOf(OobType.DEFAULT) }
+    var role by rememberSaveable { mutableStateOf(initialRole) }
+    var oob by rememberSaveable { mutableStateOf(initialOob) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->

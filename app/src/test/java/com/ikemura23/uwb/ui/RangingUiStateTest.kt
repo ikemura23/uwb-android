@@ -26,6 +26,15 @@ class RangingUiStateTest {
         assertSame(pos, s.position)
     }
 
+    @Test fun positionAddsSingleLogLineWithDistance() {
+        val s = base.reduce(ExperimentEvent.Ranging(RangingResult.RangingResultPosition(dev, pos)), 10)
+        assertEquals(listOf("測距: 距離=1.23 m"), s.logs.map { it.message })
+    }
+
+    @Test fun startedMarkerAddsNoLog() {
+        assertEquals(base, base.reduce(ExperimentEvent.Started, 1))
+    }
+
     @Test fun peerDisconnectedKeepsLastPosition() {
         val s = base.reduce(ExperimentEvent.Ranging(RangingResult.RangingResultPosition(dev, pos)), 10)
             .reduce(ExperimentEvent.Status(ExperimentStatus.PEER_DISCONNECTED), 20)

@@ -6,7 +6,6 @@ import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
 import androidx.core.uwb.UwbClientSessionScope
 import androidx.core.uwb.UwbComplexChannel
-import androidx.core.uwb.UwbControllerSessionScope
 import androidx.core.uwb.UwbManager
 import kotlinx.coroutines.flow.Flow
 
