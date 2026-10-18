@@ -42,12 +42,15 @@ class NearbyOobTransport(
 
     @Volatile private var pending: CompletableDeferred<*>? = null
 
+    // 親機 state, written from Nearby callback threads.
+    @Volatile private var receivedControlee: ControleeInfo? = null
+    @Volatile private var sentPayloadId: Long? = null
+    @Volatile private var responseSent = false
+
     // ---- 親機 ----
 
     override suspend fun exchangeAsController(build: (ControleeInfo) -> ControllerInfo): ControleeInfo {
         val result = CompletableDeferred<ControleeInfo>().also { pending = it }
-        var receivedControlee: ControleeInfo? = null
-        var sentPayloadId: Long? = null
 
         val payloadCallback = object : PayloadCallback() {
             override fun onPayloadReceived(endpointId: String, payload: Payload) {
@@ -59,6 +62,7 @@ class NearbyOobTransport(
                     receivedControlee = info
                     sentPayloadId = response.id
                     client.sendPayload(endpointId, response)
+                        .addOnSuccessListener { responseSent = true }
                         .addOnFailureListener { fail(result, "親機情報の送信に失敗しました: ${it.message}") }
                 } catch (e: Exception) {
                     result.completeExceptionally(e)
@@ -81,7 +85,15 @@ class NearbyOobTransport(
 
         val options = AdvertisingOptions.Builder().setStrategy(STRATEGY).build()
         log("アドバタイズ開始")
-        client.startAdvertising(endpointName(), SERVICE_ID, lifecycleCallback(result, payloadCallback), options)
+        client.startAdvertising(endpointName(), SERVICE_ID, lifecycleCallback(result, payloadCallback, onDisconnected = {
+            // Disconnect after our response was sent = the 子機 got ControllerInfo and closed.
+            val info = receivedControlee
+            if (responseSent && info != null) {
+                if (result.complete(info)) log("子機の切断を確認")
+            } else {
+                fail(result, "交換完了前に切断されました")
+            }
+        }), options)
             .addOnSuccessListener { log("アドバタイズ開始完了") }
             .addOnFailureListener { fail(result, "アドバタイズ開始に失敗しました: ${it.message}") }
         return awaitPending(result)
@@ -136,6 +148,7 @@ class NearbyOobTransport(
     private fun lifecycleCallback(
         result: CompletableDeferred<*>,
         payloadCallback: PayloadCallback,
+        onDisconnected: () -> Unit = { fail(result, "交換完了前に切断されました") },
         onConnected: (endpointId: String) -> Unit = {},
     ) = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
@@ -150,6 +163,7 @@ class NearbyOobTransport(
         }
 
         override fun onConnectionResult(endpointId: String, resolution: ConnectionResolution) {
+            if (endpointId != claimedEndpoint.get()) return
             val code = resolution.status.statusCode
             if (code != ConnectionsStatusCodes.STATUS_OK) {
                 fail(result, "接続に失敗しました (status=$code)")
@@ -163,7 +177,7 @@ class NearbyOobTransport(
         }
 
         override fun onDisconnected(endpointId: String) {
-            fail(result, "交換完了前に切断されました")
+            if (endpointId == claimedEndpoint.get()) onDisconnected()
         }
     }
 
