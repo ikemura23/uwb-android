@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - パッケージ: `com.ikemura23.uwb`（既存）。単一モジュール `:app`
-- `minSdk = 31`（UWB が使える最低 API。ユーザー決定。SDK バージョン判定は極力書かない）。`compileSdk` / `targetSdk` は既存の 37 のまま
+- `minSdk = 33`（ユーザー決定。SDK バージョン判定を書かないため）。`compileSdk` / `targetSdk` は既存の 37 のまま
 - 起動画面で `FEATURE_UWB` なしなら「この端末は UWB 非対応です」を出して開始ボタンを無効化する（API レベル判定は不要）
 - `androidx.core.uwb:uwb:1.1.0-alpha03`（ユーザー決定）
 - `uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR`、`updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC`
@@ -38,7 +38,7 @@
 ### Task 1: ビルド設定・モデル・OOB メッセージコーデック
 
 **Files:**
-- Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`（minSdk 24 → 31、uwb 1.1.0-alpha03 / coroutines / lifecycle-viewmodel-compose / coroutines-test 追加）
+- Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`（minSdk 24 → 33、uwb 1.1.0-alpha03 / coroutines / lifecycle-viewmodel-compose / coroutines-test 追加）
 - Create: `app/src/main/java/com/ikemura23/uwb/model/Role.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/model/OobType.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/OobMessages.kt`
@@ -272,7 +272,7 @@ class RangingParamsTest {
   - `data class RangingUiState(val role: Role, val oob: OobType, val status: ExperimentStatus = OOB_CONNECTING, val reason: String? = null, val position: RangingPosition? = null, val timings: Timings = Timings(), val logs: List<LogLine> = emptyList())`
   - `fun RangingUiState.reduce(event: ExperimentEvent, timeMs: Long): RangingUiState` — `Status`/`Ranging`/`TimingsUpdated` もログ行を追加（計測値をログに残す仕様のため）。`Ranging` は `RangingResultPosition` のときだけ position 更新
   - `fun formatMeters(m: RangingMeasurement?): String`（`"1.23 m"` / `"—"`）、`fun formatDegrees(m: RangingMeasurement?): String`（`"-12.5°"` / `"—"`）、`fun formatMs(ms: Long?): String`（`"350 ms"` / `"—"`）
-  - `fun requiredRuntimePermissions(oob: OobType, sdkInt: Int): List<String>`— 常に `UWB_RANGING`。BLE: `BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE`。NEARBY: BLE の3つ＋`ACCESS_FINE_LOCATION`（Nearby の最新ドキュメントで要否確認し、不要なら除く）＋ `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`。WIFI_AWARE: `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`、31〜32 なら `ACCESS_FINE_LOCATION`
+  - `fun requiredRuntimePermissions(oob: OobType): List<String>` — 常に `UWB_RANGING`。BLE: `BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE`。NEARBY: BLE の3つ＋`NEARBY_WIFI_DEVICES`＋`ACCESS_FINE_LOCATION`（Nearby の最新ドキュメントで要否確認し、不要なら除く）。WIFI_AWARE: `NEARBY_WIFI_DEVICES`
   - `fun missingPermissions(required: List<String>, granted: Map<String, Boolean>): List<String>`
   - `object OobTransportFactory { fun create(context: Context, type: OobType, onEvent: (OobEvent) -> Unit): OobTransport }`（この時点では全分岐 `TODO()` 相当の `IllegalStateException("未実装")`、Task 6〜8 で埋める）
   - `RangingViewModel(app, role, oob)`: init で runner を `viewModelScope` で collect し `StateFlow<RangingUiState>` を公開。`stop()` で job キャンセル
@@ -312,7 +312,7 @@ class RangingUiStateTest {
 class PermissionsTest {
     @Test fun bleNeedsUwbAndBluetooth() {
         assertEquals(setOf(UWB_RANGING, BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE),
-            requiredRuntimePermissions(OobType.BLE, sdkInt = 34).toSet())
+            requiredRuntimePermissions(OobType.BLE).toSet())
     }
     @Test fun missingPermissionsListsDenied() {
         assertEquals(listOf("b"), missingPermissions(listOf("a", "b"), mapOf("a" to true, "b" to false)))
@@ -378,8 +378,8 @@ GATT のやり取り:
 
 **Files:**
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/wifiaware/WifiAwareOobTransport.kt`
-- Modify: `OobTransportFactory.kt`、`OobType.kt`（WIFI_AWARE を `implemented = true`）、`AndroidManifest.xml`（`NEARBY_WIFI_DEVICES` に `android:usesPermissionFlags="neverForLocation"`、`ACCESS_FINE_LOCATION`（API 31〜32 用）、`<uses-feature android:name="android.hardware.wifi.aware" android:required="false"/>`）
-- Test: `PermissionsTest` に `wifiAwarePermissions` を追加（`sdkInt = 34` で `setOf(UWB_RANGING, NEARBY_WIFI_DEVICES)`、`sdkInt = 31` で `setOf(UWB_RANGING, ACCESS_FINE_LOCATION)`）
+- Modify: `OobTransportFactory.kt`、`OobType.kt`（WIFI_AWARE を `implemented = true`）、`AndroidManifest.xml`（`NEARBY_WIFI_DEVICES` に `android:usesPermissionFlags="neverForLocation"`、`<uses-feature android:name="android.hardware.wifi.aware" android:required="false"/>`）
+- Test: `PermissionsTest` に `wifiAwarePermissions` を追加（`setOf(UWB_RANGING, NEARBY_WIFI_DEVICES)`）
 
 **Interfaces:**
 - Produces: `class WifiAwareOobTransport(context: Context, onEvent: (OobEvent) -> Unit) : OobTransport`
