@@ -6,15 +6,16 @@
 
 **Architecture:** OOB 方式ごとの差は `OobTransport` 実装だけに閉じ込め、UWB セッション・時間計測・画面状態は共通層（`ExperimentRunner` / `TimingTracker` / `reduce`）で扱う。UWB API は薄いラッパー `UwbSessions` 越しに使い、共通層を JVM 単体テストできるようにする。
 
-**Tech Stack:** Kotlin, Jetpack Compose (Material3), `androidx.core.uwb:uwb:1.0.0`, `com.google.android.gms:play-services-nearby`, Android BLE (GATT), Wi-Fi Aware, kotlinx-coroutines, JUnit4
+**Tech Stack:** Kotlin, Jetpack Compose (Material3), `androidx.core.uwb:uwb:1.1.0-alpha03`, `com.google.android.gms:play-services-nearby`, Android BLE (GATT), Wi-Fi Aware, kotlinx-coroutines, JUnit4
 
 **Spec:** `docs/superpowers/specs/2026-10-18-uwb-oob-connection-test-design.md`
 
 ## Global Constraints
 
 - パッケージ: `com.ikemura23.uwb`（既存）。単一モジュール `:app`
-- `minSdk = 33`（24 から変更）。`compileSdk` / `targetSdk` は既存の 37 のまま
-- `androidx.core.uwb:uwb:1.0.0`
+- `minSdk = 24` のまま（ユーザー決定）。`compileSdk` / `targetSdk` は既存の 37 のまま
+- UWB は API 31+ が必要なため、実験フロー（Task 3 以降の UWB・OOB コード）は `@RequiresApi(Build.VERSION_CODES.S)` を付け、起動画面で `SDK_INT < 31` または `FEATURE_UWB` なしなら「この端末は UWB 非対応です」を出して開始ボタンを無効化する
+- `androidx.core.uwb:uwb:1.1.0-alpha03`（ユーザー決定。AAR の minSdk は 24 で確認済み）
 - `uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR`、`updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC`
 - STS: Static STS、`sessionKeyInfo` は 8 バイト（親機がランダム生成）。`sessionId` も親機がランダム生成
 - OOB 交換順: 子機が先に `ControleeInfo` を送り、親機が `ControllerInfo` を返す（Wi-Fi Aware の制約）
@@ -37,7 +38,7 @@
 ### Task 1: ビルド設定・モデル・OOB メッセージコーデック
 
 **Files:**
-- Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`（minSdk 33、uwb / coroutines / lifecycle-viewmodel-compose / coroutines-test 追加）
+- Modify: `gradle/libs.versions.toml`, `app/build.gradle.kts`（minSdk は変更しない、uwb 1.1.0-alpha03 / coroutines / lifecycle-viewmodel-compose / coroutines-test 追加）
 - Create: `app/src/main/java/com/ikemura23/uwb/model/Role.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/model/OobType.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/OobMessages.kt`
@@ -47,7 +48,7 @@
 **Interfaces:**
 - Produces:
   - `enum class Role(val label: String) { CONTROLLER("親機"), CONTROLEE("子機") }`
-  - `enum class OobType(val label: String, val implemented: Boolean) { BLE("BLE", true), NEARBY("Nearby Connections", false), WIFI_AWARE("Wi-Fi Aware", false) }`（Task 7/8 で `implemented` を true にする）
+  - `enum class OobType(val label: String, val implemented: Boolean) { BLE("BLE", true), NEARBY("Nearby Connections", false), WIFI_AWARE("Wi-Fi Aware", false); companion object { val DEFAULT = BLE } }`（Task 7/8 で `implemented` を true にする）
   - `class ControleeInfo(val address: ByteArray)`
   - `class ControllerInfo(val address: ByteArray, val channel: Int, val preambleIndex: Int, val sessionId: Int, val sessionKey: ByteArray)`
   - 両クラスとも `equals`/`hashCode` を `contentEquals` ベースで実装（テスト比較用）
@@ -271,12 +272,12 @@ class RangingParamsTest {
   - `data class RangingUiState(val role: Role, val oob: OobType, val status: ExperimentStatus = OOB_CONNECTING, val reason: String? = null, val position: RangingPosition? = null, val timings: Timings = Timings(), val logs: List<LogLine> = emptyList())`
   - `fun RangingUiState.reduce(event: ExperimentEvent, timeMs: Long): RangingUiState` — `Status`/`Ranging`/`TimingsUpdated` もログ行を追加（計測値をログに残す仕様のため）。`Ranging` は `RangingResultPosition` のときだけ position 更新
   - `fun formatMeters(m: RangingMeasurement?): String`（`"1.23 m"` / `"—"`）、`fun formatDegrees(m: RangingMeasurement?): String`（`"-12.5°"` / `"—"`）、`fun formatMs(ms: Long?): String`（`"350 ms"` / `"—"`）
-  - `fun requiredRuntimePermissions(oob: OobType): List<String>` — 常に `UWB_RANGING`。BLE: `BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE`。NEARBY: BLE の3つ＋`NEARBY_WIFI_DEVICES`＋`ACCESS_FINE_LOCATION`（Nearby の最新ドキュメントで要否確認し、不要なら除く）。WIFI_AWARE: `NEARBY_WIFI_DEVICES`
+  - `fun requiredRuntimePermissions(oob: OobType, sdkInt: Int): List<String>`（`sdkInt >= 31` 前提）— 常に `UWB_RANGING`。BLE: `BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE`。NEARBY: BLE の3つ＋`ACCESS_FINE_LOCATION`（Nearby の最新ドキュメントで要否確認し、不要なら除く）＋ `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`。WIFI_AWARE: `sdkInt >= 33` なら `NEARBY_WIFI_DEVICES`、31〜32 なら `ACCESS_FINE_LOCATION`
   - `fun missingPermissions(required: List<String>, granted: Map<String, Boolean>): List<String>`
   - `object OobTransportFactory { fun create(context: Context, type: OobType, onEvent: (OobEvent) -> Unit): OobTransport }`（この時点では全分岐 `TODO()` 相当の `IllegalStateException("未実装")`、Task 6〜8 で埋める）
   - `RangingViewModel(app, role, oob)`: init で runner を `viewModelScope` で collect し `StateFlow<RangingUiState>` を公開。`stop()` で job キャンセル
 - 画面:
-  - 起動画面: UWB 非対応なら「この端末は UWB 非対応です」表示。役割（親機/子機）と OOB（`implemented == false` は disabled）の選択、開始ボタン。開始で `RequestMultiplePermissions` → 不足があれば `"権限が不足しています: ..."` を表示して留まる
+  - 起動画面（1画面に縦に並べる）: タイトル → UWB 非対応なら「この端末は UWB 非対応です」 → 「役割」ラジオボタン（親機 / 子機、初期値なし＝未選択では開始不可） → 「OOB 方式」ラジオボタン（BLE / Nearby Connections / Wi-Fi Aware、初期選択 `OobType.DEFAULT`＝BLE。`implemented == false` は「（未実装）」付きで disabled） → 開始ボタン。開始で `RequestMultiplePermissions` → 不足があれば `"権限が不足しています: ..."` を表示して留まる
   - 測距画面: 役割・OOB・状態（＋reason）、4値、計測4項目（OOB 接続確立まで / 交換完了まで / 初回測距まで / 交換完了→初回測距）、ログ（`LazyColumn`、新しい行が下）、停止ボタン（`stop()` して起動画面へ）
   - 画面遷移はナビゲーションライブラリを使わず `MainActivity` 内の状態で切替
 
@@ -311,7 +312,7 @@ class RangingUiStateTest {
 class PermissionsTest {
     @Test fun bleNeedsUwbAndBluetooth() {
         assertEquals(setOf(UWB_RANGING, BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE),
-            requiredRuntimePermissions(OobType.BLE).toSet())
+            requiredRuntimePermissions(OobType.BLE, sdkInt = 34).toSet())
     }
     @Test fun missingPermissionsListsDenied() {
         assertEquals(listOf("b"), missingPermissions(listOf("a", "b"), mapOf("a" to true, "b" to false)))
@@ -331,7 +332,7 @@ class PermissionsTest {
 **Files:**
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/ble/BleOobTransport.kt`
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/ble/BleUuids.kt`
-- Modify: `OobTransportFactory.kt`（BLE 分岐）、`AndroidManifest.xml`（`BLUETOOTH_SCAN` は `android:usesPermissionFlags="neverForLocation"`、`BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, `<uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>`）
+- Modify: `OobTransportFactory.kt`（BLE 分岐）、`AndroidManifest.xml`（`BLUETOOTH_SCAN` は `android:usesPermissionFlags="neverForLocation"`、`BLUETOOTH` / `BLUETOOTH_ADMIN` は `android:maxSdkVersion="30"`、`BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, `<uses-feature android:name="android.hardware.bluetooth_le" android:required="false"/>`）
 
 **Interfaces:**
 - Consumes: `OobTransport`, `OobEvent`, `OobCodec`
@@ -377,8 +378,8 @@ GATT のやり取り:
 
 **Files:**
 - Create: `app/src/main/java/com/ikemura23/uwb/oob/wifiaware/WifiAwareOobTransport.kt`
-- Modify: `OobTransportFactory.kt`、`OobType.kt`（WIFI_AWARE を `implemented = true`）、`AndroidManifest.xml`（`NEARBY_WIFI_DEVICES` に `android:usesPermissionFlags="neverForLocation"`、`<uses-feature android:name="android.hardware.wifi.aware" android:required="false"/>`）
-- Test: `PermissionsTest` に `wifiAwarePermissions` を追加（`setOf(UWB_RANGING, NEARBY_WIFI_DEVICES)`）
+- Modify: `OobTransportFactory.kt`、`OobType.kt`（WIFI_AWARE を `implemented = true`）、`AndroidManifest.xml`（`NEARBY_WIFI_DEVICES` に `android:usesPermissionFlags="neverForLocation"`、`ACCESS_FINE_LOCATION`（API 31〜32 用）、`<uses-feature android:name="android.hardware.wifi.aware" android:required="false"/>`）
+- Test: `PermissionsTest` に `wifiAwarePermissions` を追加（`sdkInt = 34` で `setOf(UWB_RANGING, NEARBY_WIFI_DEVICES)`、`sdkInt = 31` で `setOf(UWB_RANGING, ACCESS_FINE_LOCATION)`）
 
 **Interfaces:**
 - Produces: `class WifiAwareOobTransport(context: Context, onEvent: (OobEvent) -> Unit) : OobTransport`

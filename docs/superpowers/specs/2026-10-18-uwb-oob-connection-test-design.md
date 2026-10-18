@@ -47,7 +47,7 @@ UWB アドレス・チャネル等を交換する必要がある。その OOB �
 ## 技術構成（ユーザー決定）
 
 - Kotlin / Jetpack Compose（既存プロジェクト `com.ikemura23.uwb` をそのまま使う）
-- `androidx.core.uwb:uwb:1.0.0`（安定版）
+- `androidx.core.uwb:uwb:1.1.0-alpha03`（最新 alpha。ユーザー決定）
 
 ## 役割
 
@@ -60,8 +60,10 @@ UWB アドレス・チャネル等を交換する必要がある。その OOB �
 
 ## 画面構成
 
-1. **起動画面**: 「親機」「子機」の選択と、OOB 方式（BLE / Nearby Connections / Wi-Fi Aware）の選択、開始ボタン。
-   - OOB 方式を起動画面で選ぶのは Claude の判断（2 台で同じ方式を選ぶ運用）。未実装の方式は選択不可（disabled）にする。
+画面は起動画面と測距画面の 2 つ。
+
+1. **起動画面**: 「親機」「子機」の選択と、OOB 方式のラジオボタン（BLE / Nearby Connections / Wi-Fi Aware、初期選択 BLE。ユーザー決定）、開始ボタン。
+   - OOB 選択は UWB 接続前に行う（ユーザー決定）。役割と同じ起動画面に置く（Claude の提案）。2 台で同じ方式を選ぶ運用。未実装の方式は選択不可（disabled）にする。
    - 端末が UWB 非対応（`PackageManager.FEATURE_UWB` なし）の場合はその旨を表示。
 2. **測距画面**:
    - 上部: 役割・OOB 方式・状態（例: 権限確認中 → OOB 接続中 → パラメータ交換済み → UWB 測距中 / 失敗）
@@ -147,7 +149,7 @@ interface OobTransport {
 
 ## 権限・設定
 
-- `minSdk` を 24 → 33 に上げる（Claude の判断。UWB は Android 12+、Wi-Fi Aware の `NEARBY_WIFI_DEVICES` は 13+。Pixel UWB 対応機は全て Android 13 以上に更新可能）
+- `minSdk` は 24 のまま（ユーザー決定）。UWB は Android 12+ のため、それ未満の端末では起動画面で UWB 非対応と表示する。権限は API レベルで出し分ける（`NEARBY_WIFI_DEVICES` は 13+、12 では `ACCESS_FINE_LOCATION`）
 - 権限: `UWB_RANGING`, `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`, `NEARBY_WIFI_DEVICES`, `ACCESS_FINE_LOCATION`（Nearby Connections 用。API 33+ で要否が変わっているので最新ドキュメントで確認）, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE` 等。必要なものは実装時に確定する。
 - 実行時権限は開始ボタン押下時にまとめてリクエストし、拒否されたら測距画面ではなく起動画面でエラー表示。
 
