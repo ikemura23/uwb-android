@@ -28,6 +28,9 @@ import com.ikemura23.uwb.oob.OobEvent
 import com.ikemura23.uwb.oob.OobTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -49,17 +52,21 @@ class BleOobTransport(
     @Volatile private var advertiseCallback: AdvertiseCallback? = null
     @Volatile private var scanCallback: ScanCallback? = null
 
+    // 親機 state, written from GATT binder threads.
+    @Volatile private var receivedControlee: ControleeInfo? = null
+    @Volatile private var controllerResponse: ByteArray? = null
+
     // ---- 親機 ----
 
     override suspend fun exchangeAsController(build: (ControleeInfo) -> ControllerInfo): ControleeInfo {
         val adapter = requireAdapter()
         val result = CompletableDeferred<ControleeInfo>().also { pending = it }
-        var controlee: ControleeInfo? = null
-        var response: ByteArray? = null
-        var mtu = DEFAULT_MTU
+        // Completed once a Read Response with ControllerInfo has been handed to the stack.
+        val responseSent = CompletableDeferred<ControleeInfo>()
 
         val callback = object : BluetoothGattServerCallback() {
             override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+                if (closed.get()) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     result.completeExceptionally(IllegalStateException("GATT サービス追加に失敗しました (status=$status)"))
                     return
@@ -73,14 +80,17 @@ class BleOobTransport(
                     log("子機が接続: ${device.address}")
                     emitLinkEstablished()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    // Disconnect after our Read Response = the 子機 got ControllerInfo and closed.
+                    val info = if (responseSent.isCompleted) receivedControlee else null
+                    if (info != null) {
+                        if (result.complete(info)) log("子機の切断を確認")
+                        return
+                    }
                     result.completeExceptionally(IllegalStateException("交換完了前に子機が切断しました (status=$status)"))
                 }
             }
 
-            override fun onMtuChanged(device: BluetoothDevice, newMtu: Int) {
-                log("MTU 変更: $newMtu")
-                mtu = newMtu
-            }
+            override fun onMtuChanged(device: BluetoothDevice, newMtu: Int) = log("MTU 変更: $newMtu")
 
             override fun onCharacteristicWriteRequest(
                 device: BluetoothDevice, requestId: Int, characteristic: BluetoothGattCharacteristic,
@@ -94,8 +104,8 @@ class BleOobTransport(
                 try {
                     val info = OobCodec.decodeControlee(value)
                     log("子機情報を受信 (${value.size} bytes)")
-                    response = OobCodec.encode(build(info))
-                    controlee = info
+                    controllerResponse = OobCodec.encode(build(info))
+                    receivedControlee = info
                     if (responseNeeded) server.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                 } catch (e: Exception) {
                     if (responseNeeded) server.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, 0, null)
@@ -107,8 +117,8 @@ class BleOobTransport(
                 device: BluetoothDevice, requestId: Int, offset: Int, characteristic: BluetoothGattCharacteristic,
             ) {
                 val server = gattServer ?: return
-                val value = response
-                val info = controlee
+                val value = controllerResponse
+                val info = receivedControlee
                 if (characteristic.uuid != BleUuids.CONTROLLER_INFO || value == null || info == null ||
                     offset > value.size
                 ) {
@@ -118,11 +128,7 @@ class BleOobTransport(
                 server.sendResponse(
                     device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value.copyOfRange(offset, value.size),
                 )
-                // A read response carries at most MTU-1 bytes; longer values are fetched via read blob.
-                if (offset + mtu - 1 >= value.size) {
-                    log("親機情報を送信 (${value.size} bytes)")
-                    result.complete(info)
-                }
+                if (responseSent.complete(info)) log("親機情報を送信 (${value.size} bytes)、子機の切断待ち")
             }
         }
 
@@ -147,10 +153,23 @@ class BleOobTransport(
             )
         }
         check(server.addService(service)) { "GATT サービスを追加できませんでした" }
-        return awaitPending(result)
+        return coroutineScope {
+            // Fallback if the 子機's disconnect never arrives (still inside the runner's timeout).
+            val fallback = launch {
+                val info = responseSent.await()
+                delay(DISCONNECT_WAIT_MS)
+                if (result.complete(info)) log("切断待ちタイムアウト、交換完了とみなす")
+            }
+            try {
+                awaitPending(result)
+            } finally {
+                fallback.cancel()
+            }
+        }
     }
 
     private fun startAdvertising(adapter: BluetoothAdapter, result: CompletableDeferred<*>) {
+        if (closed.get()) return
         val advertiser = adapter.bluetoothLeAdvertiser
         if (advertiser == null) {
             result.completeExceptionally(IllegalStateException("Bluetooth が OFF です"))
@@ -170,6 +189,8 @@ class BleOobTransport(
             .build()
         val data = AdvertiseData.Builder().addServiceUuid(ParcelUuid(BleUuids.SERVICE)).build()
         advertiser.startAdvertising(settings, data, callback)
+        // close() may have run concurrently and missed advertiseCallback.
+        if (closed.get()) release()
     }
 
     // ---- 子機 ----
@@ -328,7 +349,7 @@ class BleOobTransport(
     private fun log(message: String) = onEvent(OobEvent.Log(message))
 
     private companion object {
-        const val DEFAULT_MTU = 23
+        const val DISCONNECT_WAIT_MS = 2_000L
         const val REQUEST_MTU = 64
     }
 }
