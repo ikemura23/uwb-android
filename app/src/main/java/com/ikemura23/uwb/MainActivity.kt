@@ -1,5 +1,6 @@
 package com.ikemura23.uwb
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,10 +8,23 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.ikemura23.uwb.model.OobType
+import com.ikemura23.uwb.model.Role
+import com.ikemura23.uwb.ui.RangingScreen
+import com.ikemura23.uwb.ui.RangingViewModel
+import com.ikemura23.uwb.ui.StartScreen
 import com.ikemura23.uwb.ui.theme.UwbandroidTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,10 +34,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             UwbandroidTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    App(Modifier.padding(innerPadding))
                 }
             }
         }
@@ -31,17 +42,36 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+private fun App(modifier: Modifier = Modifier) {
+    var role by rememberSaveable { mutableStateOf<Role?>(null) }
+    var oob by rememberSaveable { mutableStateOf(OobType.DEFAULT) }
+    // Bumped on every start so each run gets a fresh ViewModel.
+    var runId by rememberSaveable { mutableIntStateOf(0) }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    UwbandroidTheme {
-        Greeting("Android")
+    val activeRole = role
+    if (activeRole == null) {
+        StartScreen(
+            onStart = { r, o ->
+                role = r
+                oob = o
+                runId++
+            },
+            modifier = modifier,
+        )
+    } else {
+        val app = LocalContext.current.applicationContext as Application
+        val vm: RangingViewModel = viewModel(
+            key = "ranging-$runId",
+            factory = viewModelFactory { initializer { RangingViewModel(app, activeRole, oob) } },
+        )
+        val state by vm.state.collectAsState()
+        RangingScreen(
+            state = state,
+            onStop = {
+                vm.stop()
+                role = null
+            },
+            modifier = modifier,
+        )
     }
 }
