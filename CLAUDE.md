@@ -26,7 +26,7 @@ UWB 対応 Pixel 2 台で UWB 測距ができるかを検証する実験用 Andr
 ./gradlew :app:testDebugUnitTest --tests "com.ikemura23.uwb.oob.OobCodecTest"
 ```
 
-計装テスト (`androidTest`) は現在存在しない。UWB/BLE/Wi-Fi Aware の実動作は実機 2 台 (片方を親機、もう片方を子機にして同じ OOB 方式を選ぶ) でしか確認できない。
+UWB/BLE/Wi-Fi Aware の実動作は実機 2 台 (片方を親機、もう片方を子機にして同じ OOB 方式を選ぶ) でしか確認できない。
 
 ## アーキテクチャ
 
