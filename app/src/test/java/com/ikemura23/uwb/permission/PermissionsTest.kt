@@ -21,6 +21,19 @@ class PermissionsTest {
         )
     }
 
+    @Test fun nearbyNeedsLocalNetworkOnApi37() {
+        assertEquals(true, ACCESS_LOCAL_NETWORK in requiredRuntimePermissions(OobType.NEARBY, sdkInt = 37))
+    }
+
+    @Test fun nearbyDoesNotRequestLocalNetworkBeforeApi37() {
+        assertEquals(false, ACCESS_LOCAL_NETWORK in requiredRuntimePermissions(OobType.NEARBY, sdkInt = 36))
+    }
+
+    @Test fun localNetworkOnlyForNearby() {
+        assertEquals(false, ACCESS_LOCAL_NETWORK in requiredRuntimePermissions(OobType.BLE, sdkInt = 37))
+        assertEquals(false, ACCESS_LOCAL_NETWORK in requiredRuntimePermissions(OobType.WIFI_AWARE, sdkInt = 37))
+    }
+
     @Test fun nearbyDoesNotNeedFineLocationOnApi33() {
         assertEquals(false, "android.permission.ACCESS_FINE_LOCATION" in requiredRuntimePermissions(OobType.NEARBY))
     }
